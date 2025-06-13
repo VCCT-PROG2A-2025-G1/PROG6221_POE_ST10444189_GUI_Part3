@@ -37,6 +37,11 @@ namespace PROG6221_POE_ST10444189_GUI
         //----------------------------------------------\\
 
         //----------------------------------------------\\
+        // Quiz instance
+        private CybersecurityQuiz quiz = new CybersecurityQuiz();
+        //----------------------------------------------\\
+
+        //----------------------------------------------\\
         // Enum to track conversation steps
         private enum ConversationStep
         {
@@ -69,7 +74,27 @@ namespace PROG6221_POE_ST10444189_GUI
             //---------------------------------------------------------\\
 
             //---------------------------------------------------------\\
-            // PRIORITY: Handle task creation flow first
+            // PRIORITY: Handle quiz interactions first
+            if (quiz.IsQuizActive())
+            {
+                // User is in the middle of a quiz, process their answer
+                return quiz.ProcessAnswer(userInput);
+            }
+
+            // Check for quiz-related commands
+            if (input == "start quiz" || input == "quiz" || input == "take quiz" || input == "cybersecurity quiz")
+            {
+                return quiz.StartQuiz();
+            }
+
+            if (input == "quiz status" || input == "quiz info")
+            {
+                return quiz.GetQuizStatus();
+            }
+            //---------------------------------------------------------\\
+
+            //---------------------------------------------------------\\
+            // PRIORITY: Handle task creation flow
             if (currentStep == ConversationStep.AwaitingTaskReminder)
             {
                 if (input.Contains("yes"))
@@ -441,13 +466,22 @@ namespace PROG6221_POE_ST10444189_GUI
 
                 case "what can i ask you about?":
                 case "what can i ask about":
-                    return "You can ask me about password safety, phishing scams, safe browsing, privacy protection, and other cybersecurity concerns.";
+                    return "You can ask me about password safety, phishing scams, safe browsing, privacy protection, and other cybersecurity concerns. You can also type 'start quiz' to test your cybersecurity knowledge!";
+
+                case "help":
+                case "commands":
+                    return "Here's what I can help you with:\n" +
+                           "• Ask about cybersecurity topics (passwords, phishing, privacy, scams)\n" +
+                           "• Type 'start quiz' to take a cybersecurity quiz\n" +
+                           "• Add tasks with 'Add task - [task name]'\n" +
+                           "• Tell me your name with 'My name is [name]'\n" +
+                           "• Share interests with 'I like [topic]'";
 
                 case "exit":
                     return "Goodbye! Stay safe online.";
 
                 default:
-                    return "I didn't quite understand that. You can ask me about passwords, phishing, privacy, or scams. Try asking something like 'Tell me about password safety' or 'What is phishing?'";
+                    return "I didn't quite understand that. You can ask me about passwords, phishing, privacy, or scams. You can also type 'start quiz' to test your knowledge, or type 'help' to see all available commands.";
                     //---------------------------------------------------------\\
             }
         }
