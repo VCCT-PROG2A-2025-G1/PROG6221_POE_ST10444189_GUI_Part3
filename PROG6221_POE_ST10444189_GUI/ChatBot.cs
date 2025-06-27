@@ -32,13 +32,28 @@ namespace PROG6221_POE_ST10444189_GUI
         //----------------------------------------------\\
 
         //----------------------------------------------\\
-        //List to store task lists
-        private List<CyberTask> taskList = new List<CyberTask>();
+        // Task Manager instance
+        private TaskManager taskManager = new TaskManager();
+        //----------------------------------------------\\
+
+        //----------------------------------------------\\
+        // Activity Log Manager instance
+        private ActivityLogManager activityLog = new ActivityLogManager();
+        //----------------------------------------------\\
+
+        //----------------------------------------------\\
+        // Enhanced NLP instance
+        private EnhancedNLP nlpProcessor = new EnhancedNLP();
         //----------------------------------------------\\
 
         //----------------------------------------------\\
         // Quiz instance
         private CybersecurityQuiz quiz = new CybersecurityQuiz();
+        //----------------------------------------------\\
+
+        //----------------------------------------------\\
+        // Activity log pagination
+        private int currentActivityPage = 0;
         //----------------------------------------------\\
 
         //----------------------------------------------\\
@@ -64,13 +79,19 @@ namespace PROG6221_POE_ST10444189_GUI
         //----------------------------------------------\\
 
         //----------------------------------------------\\
-        // Method to respond based on user input
+        // Method to respond based on user input with enhanced NLP
         public string Respond(string userInput)
         {
             //---------------------------------------------------------\\
             // Convert input to lowercase for case-insensitive comparison
             string input = userInput.ToLower().Trim();
             string response = "";
+
+            // Log the conversation
+            activityLog.LogConversation(userInput, "Processing...");
+
+            // Perform NLP analysis
+            NLPAnalysis analysis = nlpProcessor.AnalyzeInput(userInput);
             //---------------------------------------------------------\\
 
             //---------------------------------------------------------\\
@@ -78,13 +99,24 @@ namespace PROG6221_POE_ST10444189_GUI
             if (quiz.IsQuizActive())
             {
                 // User is in the middle of a quiz, process their answer
-                return quiz.ProcessAnswer(userInput);
+                response = quiz.ProcessAnswer(userInput);
+
+                // Check if quiz just ended to log the attempt
+                if (!quiz.IsQuizActive() && response.Contains("Quiz Complete"))
+                {
+                    // Extract score from response for logging
+                    LogQuizCompletion(response);
+                }
+
+                return response;
             }
 
-            // Check for quiz-related commands
-            if (input == "start quiz" || input == "quiz" || input == "take quiz" || input == "cybersecurity quiz")
+            // Check for quiz-related commands using enhanced NLP
+            if (analysis.DetectedIntent == "quiz_request" || IsQuizCommand(input))
             {
-                return quiz.StartQuiz();
+                response = quiz.StartQuiz();
+                activityLog.LogConversationTopic("Quiz", userInput);
+                return response;
             }
 
             if (input == "quiz status" || input == "quiz info")
@@ -97,52 +129,39 @@ namespace PROG6221_POE_ST10444189_GUI
             // PRIORITY: Handle task creation flow
             if (currentStep == ConversationStep.AwaitingTaskReminder)
             {
-                if (input.Contains("yes"))
-                {
-                    // Extract number of days from user input
-                    int days = ExtractDaysFromInput(userInput);
-                    task.ReminderDate = DateTime.Now.AddDays(days);
-                    response = $"Got it! I'll remind you in {days} day{(days != 1 ? "s" : "")}.";
-                }
-                else if (input.Contains("no"))
-                {
-                    task.ReminderDate = null;
-                    response = "No reminder set.";
-                }
-                else
-                {
-                    return "Please respond with 'Yes' or 'No' if you'd like a reminder.";
-                }
-
-                task.IsCompleted = false;
-                taskList.Add(task);
-                currentStep = ConversationStep.None;
-                return response;
+                return HandleTaskReminderResponse(userInput);
             }
 
-            // Start task creation - look for "Add task - [task title]" format
-            if (input.StartsWith("add task -") || input.StartsWith("add task-"))
+            // Handle task management commands BEFORE task creation
+            if (IsTaskManagementCommand(input))
             {
-                string taskTitle = ExtractTaskTitle(userInput);
-                if (!string.IsNullOrEmpty(taskTitle))
-                {
-                    task = new CyberTask(); // Reset temp task
-                    task.Title = taskTitle;
-
-                    // Generate cybersecurity-related description based on title
-                    task.Description = GenerateCyberDescription(taskTitle);
-
-                    currentStep = ConversationStep.AwaitingTaskReminder;
-                    return $"Task added with the description \"{task.Description}\" Would you like a reminder?";
-                }
-                else
-                {
-                    return "Please provide a task title. Format: 'Add task - [your task title]'";
-                }
+                return HandleTaskManagementCommands(input);
             }
-            //---------------------------------------------------------\\  
 
-            //---------------------------------------------------------\\ 
+            // Enhanced task creation using NLP
+            if (analysis.DetectedIntent == "task_creation" || !string.IsNullOrEmpty(analysis.ExtractedTaskName))
+            {
+                return HandleTaskCreation(analysis);
+            }
+            //---------------------------------------------------------\\
+
+            //---------------------------------------------------------\\
+            // Handle activity log requests
+            if (IsActivityLogRequest(input))
+            {
+                return HandleActivityLogRequest(input);
+            }
+            //---------------------------------------------------------\\
+
+            //---------------------------------------------------------\\
+            // Handle task management commands
+            if (IsTaskManagementCommand(input))
+            {
+                return HandleTaskManagementCommands(input);
+            }
+            //---------------------------------------------------------\\
+
+            //---------------------------------------------------------\\
             // Ask for user name if not set
             if (string.IsNullOrEmpty(userName) && input.Contains("my name is"))
             {
@@ -152,12 +171,13 @@ namespace PROG6221_POE_ST10444189_GUI
             }
             //---------------------------------------------------------\\
 
-            //---------------------------------------------------------\\ 
+            //---------------------------------------------------------\\
             // Set favorite topic if mentioned
             if (input.Contains("i like"))
             {
                 favoriteTopic = ExtractTopic(userInput);
                 response = $"That's awesome, {userName}! I'll remember that you like {favoriteTopic}.";
+                activityLog.LogConversationTopic(favoriteTopic, userInput);
                 return response;
             }
             //---------------------------------------------------------\\
@@ -210,33 +230,12 @@ namespace PROG6221_POE_ST10444189_GUI
             //---------------------------------------------------------\\
 
             //---------------------------------------------------------\\
-            // PRIORITY: Check for specific cybersecurity topics first (before sentiment detection)
-            if (IsPasswordRelated(input))
+            // Enhanced cybersecurity topic detection using NLP
+            if (!string.IsNullOrEmpty(analysis.DetectedTopic))
             {
-                currentTopic = "password";
-                response = CyberTips.passwordTips[random.Next(CyberTips.passwordTips.Count)] +
-                           " Would you like to know more about password security?";
-                return response;
-            }
-            else if (IsScamRelated(input))
-            {
-                currentTopic = "scam";
-                response = CyberTips.scammingTips[random.Next(CyberTips.scammingTips.Count)] +
-                           " Would you like more tips about avoiding scams?";
-                return response;
-            }
-            else if (IsPhishingRelated(input))
-            {
-                currentTopic = "phishing";
-                response = CyberTips.phishingTips[random.Next(CyberTips.phishingTips.Count)] +
-                           " Want to learn more about identifying phishing attempts?";
-                return response;
-            }
-            else if (IsPrivacyRelated(input))
-            {
-                currentTopic = "privacy";
-                response = CyberTips.privacyTips[random.Next(CyberTips.privacyTips.Count)] +
-                           " Would you like additional privacy protection tips?";
+                currentTopic = analysis.DetectedTopic;
+                response = HandleCybersecurityTopic(analysis.DetectedTopic, userInput);
+                activityLog.LogConversationTopic(analysis.DetectedTopic, userInput);
                 return response;
             }
             //---------------------------------------------------------\\
@@ -250,12 +249,12 @@ namespace PROG6221_POE_ST10444189_GUI
             //---------------------------------------------------------\\
 
             //---------------------------------------------------------\\
-            // Sentiment Detection (only after topic-specific handling)
-            string detectedSentiment = DetectSentiment(input);
-            if (!string.IsNullOrEmpty(detectedSentiment))
+            // Enhanced sentiment detection using NLP
+            if (!string.IsNullOrEmpty(analysis.Sentiment))
             {
-                response = RespondToSentiment(detectedSentiment, input);
-                return response;
+                response = RespondToSentiment(analysis.Sentiment, userInput);
+                if (!string.IsNullOrEmpty(response))
+                    return response;
             }
             //---------------------------------------------------------\\
 
@@ -268,20 +267,266 @@ namespace PROG6221_POE_ST10444189_GUI
         //----------------------------------------------\\
 
         //---------------------------------------------------------\\
-        // Extract task title from "Add task - [title]" format
+        // Handle task creation using NLP analysis
+        private string HandleTaskCreation(NLPAnalysis analysis)
+        {
+            string taskTitle = analysis.ExtractedTaskName;
+            if (string.IsNullOrEmpty(taskTitle))
+            {
+                // Try to extract from original input if NLP didn't catch it
+                taskTitle = ExtractTaskTitle(analysis.OriginalInput);
+            }
+
+            if (!string.IsNullOrEmpty(taskTitle))
+            {
+                task = new CyberTask();
+                task.Title = taskTitle;
+                task.Description = GenerateCyberDescription(taskTitle);
+
+                currentStep = ConversationStep.AwaitingTaskReminder;
+                return $"Task added with the description \"{task.Description}\" Would you like a reminder?";
+            }
+            else
+            {
+                return "I'd love to help you create a task! What would you like to be reminded about? You can say something like 'Remind me to update my passwords' or 'Add task - check privacy settings'.";
+            }
+        }
+        //---------------------------------------------------------\\
+
+        //---------------------------------------------------------\\
+        // Handle task reminder response
+        private string HandleTaskReminderResponse(string userInput)
+        {
+            string input = userInput.ToLower().Trim();
+            string response = "";
+
+            if (input.Contains("yes"))
+            {
+                int days = ExtractDaysFromInput(userInput);
+                task.ReminderDate = DateTime.Now.AddDays(days);
+                response = $"Got it! I'll remind you in {days} day{(days != 1 ? "s" : "")}.";
+            }
+            else if (input.Contains("no"))
+            {
+                task.ReminderDate = null;
+                response = "No reminder set.";
+            }
+            else
+            {
+                return "Please respond with 'Yes' or 'No' if you'd like a reminder.";
+            }
+
+            // Add task to manager and log the activity
+            string result = taskManager.AddTask(task.Title, task.Description, task.ReminderDate);
+            activityLog.LogTaskCreated(task.Title, task.ReminderDate);
+
+            currentStep = ConversationStep.None;
+            return response + " " + result;
+        }
+        //---------------------------------------------------------\\
+
+        //---------------------------------------------------------\\
+        // Handle cybersecurity topics with enhanced responses
+        private string HandleCybersecurityTopic(string topic, string userInput)
+        {
+            switch (topic)
+            {
+                case "password":
+                    return CyberTips.passwordTips[random.Next(CyberTips.passwordTips.Count)] +
+                           " Would you like to know more about password security?";
+                case "phishing":
+                    return CyberTips.phishingTips[random.Next(CyberTips.phishingTips.Count)] +
+                           " Want to learn more about identifying phishing attempts?";
+                case "privacy":
+                    return CyberTips.privacyTips[random.Next(CyberTips.privacyTips.Count)] +
+                           " Would you like additional privacy protection tips?";
+                case "scam":
+                    return CyberTips.scammingTips[random.Next(CyberTips.scammingTips.Count)] +
+                           " Would you like more tips about avoiding scams?";
+                case "malware":
+                    return "Malware can seriously damage your devices and steal your data. Keep your antivirus updated, avoid suspicious downloads, and regularly scan your system. Want to learn more about malware protection?";
+                case "update":
+                    return "Keeping software updated is crucial for security! Updates often fix vulnerabilities that cybercriminals exploit. Enable automatic updates when possible. Want tips on update management?";
+                case "backup":
+                    return "Regular backups protect you from data loss due to ransomware, hardware failure, or accidents. Follow the 3-2-1 rule: 3 copies, 2 different media, 1 offsite. Need help creating a backup strategy?";
+                default:
+                    return "That's an important cybersecurity topic! What specific aspect would you like to learn about?";
+            }
+        }
+        //---------------------------------------------------------\\
+
+        //---------------------------------------------------------\\
+        // Check if input is quiz-related command
+        private bool IsQuizCommand(string input)
+        {
+            return input == "start quiz" || input == "quiz" || input == "take quiz" ||
+                   input == "cybersecurity quiz" || input.Contains("test me") ||
+                   input.Contains("challenge me");
+        }
+        //---------------------------------------------------------\\
+
+        //---------------------------------------------------------\\
+        // Check if input is activity log request
+        private bool IsActivityLogRequest(string input)
+        {
+            return input.Contains("activity log") || input.Contains("show activity") ||
+                   input.Contains("my activity") || input.Contains("activity history") ||
+                   input.Contains("show more activities") || input.Contains("activity stats") ||
+                   input.Contains("what have i done");
+        }
+        //---------------------------------------------------------\\
+
+        //---------------------------------------------------------\\
+        // Handle activity log requests
+        private string HandleActivityLogRequest(string input)
+        {
+            if (input.Contains("show more activities"))
+            {
+                currentActivityPage++;
+                return activityLog.FormatActivityLog(currentActivityPage, 10);
+            }
+            else if (input.Contains("activity stats") || input.Contains("statistics"))
+            {
+                return activityLog.GetActivityStatistics();
+            }
+            else
+            {
+                currentActivityPage = 0;
+                return activityLog.FormatActivityLog(currentActivityPage, 10);
+            }
+        }
+        //---------------------------------------------------------\\
+
+        //---------------------------------------------------------\\
+        // Check if input is task management command
+        private bool IsTaskManagementCommand(string input)
+        {
+            return input.Contains("show tasks") || input.Contains("list tasks") ||
+                   input.Contains("my tasks") || input.Contains("view tasks") ||
+                   input.Contains("complete task") || input.Contains("delete task") ||
+                   input.Contains("task statistics") || input.Contains("pending tasks") ||
+                   System.Text.RegularExpressions.Regex.IsMatch(input, @"(complete|delete)\s+task\s+\d+");
+        }
+        //---------------------------------------------------------\\
+
+        //---------------------------------------------------------\\
+        // Handle task management commands
+        private string HandleTaskManagementCommands(string input)
+        {
+            if (input.Contains("show tasks") || input.Contains("list tasks") ||
+                input.Contains("my tasks") || input.Contains("view tasks"))
+            {
+                return taskManager.FormatTaskList();
+            }
+            else if (input.Contains("pending tasks"))
+            {
+                return taskManager.FormatTaskList(taskManager.GetPendingTasks());
+            }
+            else if (input.Contains("task statistics"))
+            {
+                return taskManager.GetTaskStatistics();
+            }
+
+            // Handle complete task commands - look for "complete task" followed by a number
+            if (input.Contains("complete task"))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(input, @"complete\s+task\s+(\d+)");
+                if (match.Success)
+                {
+                    int taskId = int.Parse(match.Groups[1].Value);
+                    var task = taskManager.GetTaskById(taskId);
+                    string result = taskManager.CompleteTask(taskId);
+                    if (task != null && result.Contains("completed"))
+                    {
+                        activityLog.LogTaskCompleted(task.Title);
+                    }
+                    return result;
+                }
+                else
+                {
+                    return "To complete a task, please specify the task ID. For example: 'Complete task 1'";
+                }
+            }
+
+            // Handle delete task commands - look for "delete task" followed by a number
+            if (input.Contains("delete task"))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(input, @"delete\s+task\s+(\d+)");
+                if (match.Success)
+                {
+                    int taskId = int.Parse(match.Groups[1].Value);
+                    var task = taskManager.GetTaskById(taskId);
+                    string result = taskManager.DeleteTask(taskId);
+                    if (task != null && result.Contains("deleted"))
+                    {
+                        activityLog.LogTaskDeleted(task.Title);
+                    }
+                    return result;
+                }
+                else
+                {
+                    return "To delete a task, please specify the task ID. For example: 'Delete task 1'";
+                }
+            }
+
+            return "I can help you manage tasks! Try saying 'show my tasks', 'complete task [ID]', or 'delete task [ID]'.";
+        }
+        //---------------------------------------------------------\\
+
+        //---------------------------------------------------------\\
+        // Log quiz completion
+        private void LogQuizCompletion(string response)
+        {
+            try
+            {
+                // Extract score from response using regex
+                var scoreMatch = System.Text.RegularExpressions.Regex.Match(response, @"(\d+)/(\d+)\s*\((\d+)%\)");
+                if (scoreMatch.Success)
+                {
+                    int score = int.Parse(scoreMatch.Groups[1].Value);
+                    int total = int.Parse(scoreMatch.Groups[2].Value);
+                    double percentage = double.Parse(scoreMatch.Groups[3].Value);
+
+                    activityLog.LogQuizAttempt(score, total, percentage);
+                }
+            }
+            catch
+            {
+                // Fallback logging if parsing fails
+                activityLog.LogConversationTopic("Quiz Completed", "User completed cybersecurity quiz");
+            }
+        }
+        //---------------------------------------------------------\\
+
+        //---------------------------------------------------------\\
+        // Extract task title from various input formats
         private string ExtractTaskTitle(string input)
         {
             string lowerInput = input.ToLower();
-            int dashIndex = lowerInput.IndexOf(" - ");
-            if (dashIndex == -1)
-                dashIndex = lowerInput.IndexOf("- ");
-            if (dashIndex == -1)
-                dashIndex = lowerInput.IndexOf("-");
 
-            if (dashIndex != -1 && dashIndex + 1 < input.Length)
+            // Multiple patterns for task extraction
+            var patterns = new List<string>
             {
-                return input.Substring(dashIndex + (input[dashIndex + 1] == ' ' ? 2 : 1)).Trim();
+                @"add task[:\-\s]+(.+)",
+                @"create task[:\-\s]+(.+)",
+                @"new task[:\-\s]+(.+)",
+                @"remind me to\s+(.+)",
+                @"task[:\-\s]+(.+)",
+                @"reminder[:\-\s]+(.+)",
+                @"i need to\s+(.+)",
+                @"help me remember to\s+(.+)",
+                @"don't forget to\s+(.+)"
+            };
+
+            foreach (var pattern in patterns)
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(input, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (match.Success && match.Groups.Count > 1)
+                {
+                    return match.Groups[1].Value.Trim();
+                }
             }
+
             return "";
         }
         //---------------------------------------------------------\\
@@ -304,6 +549,12 @@ namespace PROG6221_POE_ST10444189_GUI
                 return "Run security scans to protect your devices from malware.";
             else if (lowerTitle.Contains("email"))
                 return "Review email security settings and check for suspicious messages.";
+            else if (lowerTitle.Contains("wifi") || lowerTitle.Contains("network"))
+                return "Secure your network connections and avoid public WiFi for sensitive activities.";
+            else if (lowerTitle.Contains("social media"))
+                return "Review and update your social media privacy and security settings.";
+            else if (lowerTitle.Contains("browser"))
+                return "Update browser settings for enhanced privacy and security.";
             else
                 return $"Complete the cybersecurity task: {title}";
         }
@@ -316,6 +567,13 @@ namespace PROG6221_POE_ST10444189_GUI
             string lowerInput = input.ToLower();
 
             // Look for patterns like "in 3 days", "3 days", "remind me in 3"
+            var match = System.Text.RegularExpressions.Regex.Match(lowerInput, @"(\d+)\s*day");
+            if (match.Success)
+            {
+                return int.Parse(match.Groups[1].Value);
+            }
+
+            // Look for just numbers
             string[] words = lowerInput.Split(' ');
             for (int i = 0; i < words.Length; i++)
             {
@@ -327,44 +585,6 @@ namespace PROG6221_POE_ST10444189_GUI
 
             // Default to 1 day if no number found
             return 1;
-        }
-        //---------------------------------------------------------\\
-
-        //---------------------------------------------------------\\
-        // Enhanced keyword detection methods
-        private bool IsPasswordRelated(string input)
-        {
-            return input.Contains("password") || input.Contains("passphrase") ||
-                   input.Contains("login") || input.Contains("authentication") ||
-                   input.Contains("password tip") || input.Contains("password safety") ||
-                   input.Contains("secure password");
-        }
-        //---------------------------------------------------------\\
-
-        //---------------------------------------------------------\\
-        private bool IsScamRelated(string input)
-        {
-            return input.Contains("scam") || input.Contains("fraud") ||
-                   input.Contains("suspicious call") || input.Contains("phone scam") ||
-                   input.Contains("avoid scam");
-        }
-        //---------------------------------------------------------\\
-
-        //---------------------------------------------------------\\
-        private bool IsPhishingRelated(string input)
-        {
-            return input.Contains("phishing") || input.Contains("suspicious email") ||
-                   input.Contains("fake email") || input.Contains("email scam") ||
-                   input.Contains("what is phishing");
-        }
-        //---------------------------------------------------------\\
-
-        //---------------------------------------------------------\\
-        private bool IsPrivacyRelated(string input)
-        {
-            return input.Contains("privacy") || input.Contains("personal information") ||
-                   input.Contains("data protection") || input.Contains("online privacy") ||
-                   input.Contains("social media privacy") || input.Contains("vpn");
         }
         //---------------------------------------------------------\\
 
@@ -414,35 +634,17 @@ namespace PROG6221_POE_ST10444189_GUI
         //---------------------------------------------------------\\
 
         //---------------------------------------------------------\\
-        // Detect sentiment in user input (refined to avoid conflicts)
-        private string DetectSentiment(string input)
-        {
-            // Only detect sentiment if it's not already covered by topic-specific responses
-            if (input.Contains("worried") || input.Contains("scared") || input.Contains("afraid") ||
-                input.Contains("anxious") || input.Contains("concerned"))
-                return "worried";
-            else if (input.Contains("frustrated") || input.Contains("annoyed") || input.Contains("confused") ||
-                     input.Contains("don't understand") || input.Contains("help me"))
-                return "frustrated";
-            else if (input.Contains("happy") || input.Contains("excited") || input.Contains("great") ||
-                     input.Contains("awesome") || input.Contains("love"))
-                return "happy";
-            return "";
-        }
-        //---------------------------------------------------------\\
-
-        //---------------------------------------------------------\\
-        // Respond based on detected sentiment
+        // Respond based on detected sentiment using NLP
         private string RespondToSentiment(string sentiment, string input)
         {
             switch (sentiment)
             {
-                case "worried":
-                    return "It's completely understandable to feel worried about online security. I'm here to help you feel more confident. What specific area would you like to learn about first - passwords, phishing, privacy, or scams?";
-                case "frustrated":
-                    return "I understand this can be overwhelming. Let's take it step by step. What's the main thing you'd like help with?";
-                case "happy":
+                case "positive":
                     return "That's great to hear! Your positive attitude will help you learn cybersecurity more effectively. What topic interests you most?";
+                case "negative":
+                    return "I understand this can be concerning. I'm here to help you feel more confident about online security. What specific area would you like to learn about first?";
+                case "neutral":
+                    return ""; // Let other handlers take care of neutral sentiment
                 default:
                     return "";
             }
@@ -466,22 +668,24 @@ namespace PROG6221_POE_ST10444189_GUI
 
                 case "what can i ask you about?":
                 case "what can i ask about":
-                    return "You can ask me about password safety, phishing scams, safe browsing, privacy protection, and other cybersecurity concerns. You can also type 'start quiz' to test your cybersecurity knowledge!";
+                    return "You can ask me about password safety, phishing scams, safe browsing, privacy protection, and other cybersecurity concerns. You can also type 'start quiz' to test your knowledge, create tasks, or view your activity log!";
 
                 case "help":
                 case "commands":
                     return "Here's what I can help you with:\n" +
                            "• Ask about cybersecurity topics (passwords, phishing, privacy, scams)\n" +
                            "• Type 'start quiz' to take a cybersecurity quiz\n" +
-                           "• Add tasks with 'Add task - [task name]'\n" +
-                           "• Tell me your name with 'My name is [name]'\n" +
-                           "• Share interests with 'I like [topic]'";
+                           "• Create tasks: 'Add task - [task name]' or 'Remind me to [task]'\n" +
+                           "• Manage tasks: 'show my tasks', 'complete task [ID]', 'delete task [ID]'\n" +
+                           "• View activity: 'show activity log' or 'activity stats'\n" +
+                           "• Tell me your name: 'My name is [name]'\n" +
+                           "• Share interests: 'I like [topic]'";
 
                 case "exit":
-                    return "Goodbye! Stay safe online.";
+                    return "Goodbye! Stay safe online and remember to keep your cybersecurity knowledge up to date.";
 
                 default:
-                    return "I didn't quite understand that. You can ask me about passwords, phishing, privacy, or scams. You can also type 'start quiz' to test your knowledge, or type 'help' to see all available commands.";
+                    return "I didn't quite understand that. You can ask me about cybersecurity topics, take a quiz, manage tasks, or view your activity log. Type 'help' to see all available commands.";
                     //---------------------------------------------------------\\
             }
         }
@@ -504,7 +708,6 @@ namespace PROG6221_POE_ST10444189_GUI
                 default:
                     return "Can you tell me what you'd like to continue talking about?";
             }
-
         }
         //---------------------------------------------------------\\
 
@@ -544,6 +747,22 @@ namespace PROG6221_POE_ST10444189_GUI
                 return words.Length > 0 && !string.IsNullOrWhiteSpace(words[0]) ? words[0] : "cybersecurity";
             }
             return "cybersecurity";
+        }
+        //---------------------------------------------------------\\
+
+        //---------------------------------------------------------\\
+        // Get task manager instance for external access
+        public TaskManager GetTaskManager()
+        {
+            return taskManager;
+        }
+        //---------------------------------------------------------\\
+
+        //---------------------------------------------------------\\
+        // Get activity log manager instance for external access
+        public ActivityLogManager GetActivityLogManager()
+        {
+            return activityLog;
         }
         //---------------------------------------------------------\\
     }

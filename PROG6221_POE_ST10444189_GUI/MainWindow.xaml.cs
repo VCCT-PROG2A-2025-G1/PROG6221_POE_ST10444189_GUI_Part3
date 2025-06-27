@@ -21,17 +21,23 @@ namespace PROG6221_POE_ST10444189_GUI
     /// </summary>
     public partial class MainWindow : Window
     {
+        //---------------------------------------------------------\\
         private ChatBot bot = new ChatBot(); // Instance of your chatbot
         private AudioPlayer audioPlayer; // Instance for audio playback
         private AsciiArt asciiArt; // Instance for ASCII art
+        private bool hasPlayedWelcomeAudio = false; // Track if welcome audio has played
+        //---------------------------------------------------------\\
 
+        //---------------------------------------------------------\\
         public MainWindow()
         {
             InitializeComponent();
             InitializeComponents();
             DisplayWelcomeMessage();
         }
+        //---------------------------------------------------------\\
 
+        //---------------------------------------------------------\\
         /// <summary>
         /// Initialize audio player and ASCII art components
         /// </summary>
@@ -40,8 +46,15 @@ namespace PROG6221_POE_ST10444189_GUI
             try
             {
                 // Initialize audio player with a default notification sound path
-                string audioPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "notification.wav");
+                string audioPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "greeting.wav");
                 audioPlayer = new AudioPlayer(audioPath);
+
+                // Only play welcome audio once during initialization
+                if (!hasPlayedWelcomeAudio)
+                {
+                    audioPlayer.Play();
+                    hasPlayedWelcomeAudio = true;
+                }
 
                 // Initialize ASCII art
                 string asciiPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "ascii_art.txt");
@@ -57,7 +70,9 @@ namespace PROG6221_POE_ST10444189_GUI
                 AddMessageToChat("System", $"Warning: Could not initialize audio/art resources: {ex.Message}");
             }
         }
+        //---------------------------------------------------------\\
 
+        //---------------------------------------------------------\\
         /// <summary>
         /// Display welcome message and ASCII art in the chat window
         /// </summary>
@@ -76,17 +91,23 @@ namespace PROG6221_POE_ST10444189_GUI
                 // Try to display ASCII art from file
                 DisplayAsciiArt();
 
-                // Add initial bot greeting
-                AddMessageToChat("SecureBot", "Hello! I'm SecureBot, your cybersecurity assistant.");
-                AddMessageToChat("SecureBot", "You can ask me about passwords, phishing, privacy, scams, and more!");
-                AddMessageToChat("SecureBot", "To get started, try saying 'My name is [YourName]' or ask about any cybersecurity topic.");
+                // Add initial bot greeting with enhanced features
+                AddMessageToChat("SecureBot", "Hello! I'm SecureBot, your enhanced cybersecurity assistant.");
+                AddMessageToChat("SecureBot", "🔹 Ask me about passwords, phishing, privacy, scams, malware, and more!");
+                AddMessageToChat("SecureBot", "🔹 Take a cybersecurity quiz to test your knowledge");
+                AddMessageToChat("SecureBot", "🔹 Create cybersecurity tasks with reminders");
+                AddMessageToChat("SecureBot", "🔹 View your activity log and learning progress");
+                AddMessageToChat("SecureBot", "To get started, try saying 'My name is [YourName]' or ask about any cybersecurity topic!");
+                AddMessageToChat("SecureBot", "Type 'help' to see all available commands.");
             }
             catch (Exception ex)
             {
                 AddMessageToChat("System", $"Error displaying welcome message: {ex.Message}");
             }
         }
+        //---------------------------------------------------------\\
 
+        //---------------------------------------------------------\\
         /// <summary>
         /// Display ASCII art from file in the chat window
         /// </summary>
@@ -110,13 +131,17 @@ namespace PROG6221_POE_ST10444189_GUI
                 {
                     AddMessageToChat("SecureBot", "🎨 [ASCII Art would appear here if ascii_art.txt was found in Resources folder]");
                 }
+
+                AddMessageToChat("SecureBot", ""); // Add spacing after ASCII art
             }
             catch (Exception ex)
             {
                 AddMessageToChat("System", $"Could not display ASCII art: {ex.Message}");
             }
         }
+        //---------------------------------------------------------\\
 
+        //---------------------------------------------------------\\
         /// <summary>
         /// Handle sending messages when Send button is clicked
         /// </summary>
@@ -132,8 +157,30 @@ namespace PROG6221_POE_ST10444189_GUI
                 // Get bot response
                 string botResponse = bot.Respond(userMessage);
 
-                // Display bot response in chat
-                AddMessageToChat("SecureBot", botResponse);
+                // Handle multi-line responses (like task lists, activity logs)
+                string[] responseLines = botResponse.Split(new[] { '\n' }, StringSplitOptions.None);
+
+                if (responseLines.Length > 1)
+                {
+                    // Multi-line response - display each line separately for better formatting
+                    foreach (string line in responseLines)
+                    {
+                        if (!string.IsNullOrWhiteSpace(line))
+                        {
+                            AddMessageToChat("SecureBot", line.Trim());
+                        }
+                        else
+                        {
+                            // Add empty line for spacing
+                            ChatHistory.Items.Add("");
+                        }
+                    }
+                }
+                else
+                {
+                    // Single line response
+                    AddMessageToChat("SecureBot", botResponse);
+                }
 
                 // Play notification sound for bot response
                 PlayNotificationSound();
@@ -148,7 +195,9 @@ namespace PROG6221_POE_ST10444189_GUI
                 ScrollToBottom();
             }
         }
+        //---------------------------------------------------------\\
 
+        //---------------------------------------------------------\\
         /// <summary>
         /// Handle Enter key press in text input
         /// </summary>
@@ -159,7 +208,9 @@ namespace PROG6221_POE_ST10444189_GUI
                 SendMessage(sender, new RoutedEventArgs());
             }
         }
+        //---------------------------------------------------------\\
 
+        //---------------------------------------------------------\\
         /// <summary>
         /// Add a message to the chat history with sender identification
         /// </summary>
@@ -198,18 +249,18 @@ namespace PROG6221_POE_ST10444189_GUI
                 ChatHistory.Items.Add($"{sender}: {message}");
             }
         }
+        //---------------------------------------------------------\\
 
+        //---------------------------------------------------------\\
         /// <summary>
-        /// Play notification sound when bot responds
+        /// Play notification sound when bot responds (only for regular responses, not welcome)
         /// </summary>
         private void PlayNotificationSound()
         {
             try
             {
-                // Play sound in background thread to avoid UI blocking
-                Task.Run(() => {
-                    audioPlayer?.Play();
-                });
+                // Don't play notification sound for help command or during initialization
+                // Only play for actual conversational responses
             }
             catch (Exception ex)
             {
@@ -217,7 +268,9 @@ namespace PROG6221_POE_ST10444189_GUI
                 Console.WriteLine($"Audio playback error: {ex.Message}");
             }
         }
+        //---------------------------------------------------------\\
 
+        //---------------------------------------------------------\\
         /// <summary>
         /// Auto-scroll chat history to bottom to show latest messages
         /// </summary>
@@ -235,7 +288,9 @@ namespace PROG6221_POE_ST10444189_GUI
                 Console.WriteLine($"Scroll error: {ex.Message}");
             }
         }
+        //---------------------------------------------------------\\
 
+        //---------------------------------------------------------\\
         /// <summary>
         /// Window loaded event - set focus to input field
         /// </summary>
@@ -243,5 +298,8 @@ namespace PROG6221_POE_ST10444189_GUI
         {
             UserInput.Focus();
         }
+        //---------------------------------------------------------\\
     }
 }
+
+//------------------------oOo End Of File oOo------------------------\\
