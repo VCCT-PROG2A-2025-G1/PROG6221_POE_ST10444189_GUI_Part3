@@ -1,4 +1,8 @@
-﻿using System;
+﻿// References
+// https://chatgpt.com/
+// https://www.w3schools.com/cpp/
+
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
