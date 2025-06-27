@@ -191,7 +191,7 @@ Academic project - All rights reserved.
 ## Contact
 Student ID: ST10444189  
 Course: PROG6221 - Programming 2B  
-Institution: [Your Institution Name]
+Institution: Varsity College
 
 ---
 
